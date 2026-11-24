@@ -228,9 +228,9 @@ def export_alerts_csv(report: AnalysisReport) -> str:
     for alert in report.alerts:
         writer.writerow(
             [
-                alert.rule_id,
+                _sanitize_csv_cell(alert.rule_id),
                 alert.severity,
-                alert.category,
+                _sanitize_csv_cell(alert.category),
                 _sanitize_csv_cell(alert.title),
                 _sanitize_csv_cell(alert.source_ip),
                 alert.subnet_24,

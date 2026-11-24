@@ -11,8 +11,21 @@ from sentinel_logs import __version__
 from sentinel_logs.engine import analyze_log_text, export_alerts_csv
 
 STATIC_DIR = Path(__file__).parent / "static"
-SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
 MAX_LOG_BYTES = 2 * 1024 * 1024  # 2 MiB DoS guard
+
+
+def _resolve_samples_dir() -> Path:
+    """Locate bundled sample logs both in editable dev mode and inside Docker (/app/samples)."""
+    for candidate in (
+        Path(__file__).resolve().parents[2] / "samples",
+        Path.cwd() / "samples",
+    ):
+        if candidate.is_dir():
+            return candidate
+    return Path.cwd() / "samples"
+
+
+SAMPLES_DIR = _resolve_samples_dir()
 
 app = FastAPI(
     title="sentinel-logs SOC",

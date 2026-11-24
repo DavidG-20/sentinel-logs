@@ -81,7 +81,11 @@
         method: "POST", headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ log_text }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || `Error HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
       $("#results").style.display = "block";
       $("#k-lines").textContent = data.total_lines;
