@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>sentinel-logs — Mini-SIEM &amp; SOC Dashboard</title>
+  <style>
+    :root { --bg:#0b1120; --surface:#151e32; --alt:#090e1a; --border:#27354f; --text:#f1f5f9; --muted:#94a3b8; --primary:#38bdf8; --high:#ef4444; --med:#f59e0b; --ok:#22c55e; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:1180px; margin:0 auto; padding:1.5rem 1.25rem 3rem; }
+    .muted { color:var(--muted); }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.25rem; margin-top:1rem; }
+    .actions { display:flex; flex-wrap:wrap; gap:0.5rem; margin:0.75rem 0; }
+    button { border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.9rem; font-weight:700; cursor:pointer; background:transparent; color:var(--text); }
+    .btn-primary { background:var(--primary); color:#082f49; border-color:var(--primary); }
+    textarea { width:100%; background:var(--alt); color:#cbd5e1; border:1px solid var(--border); border-radius:8px; padding:0.75rem; font-family:ui-monospace,monospace; font-size:0.85rem; }
+    .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:0.75rem; margin-top:1rem; }
+    .kpi { background:var(--alt); border:1px solid var(--border); border-radius:10px; padding:0.9rem; }
+    .kpi strong { display:block; font-size:1.5rem; margin-top:0.2rem; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; font-size:0.88rem; }
+    th, td { text-align:left; padding:0.6rem; border-bottom:1px solid var(--border); vertical-align:top; }
+    th { color:var(--muted); }
+    .badge { padding:0.15rem 0.55rem; border-radius:999px; font-size:0.75rem; font-weight:700; }
+    .HIGH { background:rgba(239,68,68,0.2); color:var(--high); }
+    .MEDIUM { background:rgba(245,158,11,0.2); color:var(--med); }
+    .LOW { background:rgba(56,189,248,0.2); color:var(--primary); }
+    code { font-size:0.8rem; color:#94a3b8; word-break:break-all; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 style="margin:0;">sentinel-logs — Mini-SIEM</h1>
+    <p class="muted" style="margin:0.25rem 0 0;">Analizador defensivo de logs SSH / Nginx con reglas YAML, correlación por subred /24 y detección estadística de anomalías.</p>
+
+    <div class="card">
+      <div class="actions">
+        <button id="load-nginx">Cargar ejemplo Nginx (ataques web + pico)</button>
+        <button id="load-ssh">Cargar ejemplo SSH (fuerza bruta + /24)</button>
+        <button id="btn-analyze" class="btn-primary">Analizar logs</button>
+        <button id="btn-csv">Exportar alertas CSV</button>
+      </div>
+      <textarea id="log-input" rows="8" placeholder="Pega aquí tus líneas de log (Nginx, Apache o SSH auth.log)..."></textarea>
+    </div>
+
+    <div id="results" style="display:none;">
+      <div class="kpis">
+        <div class="kpi"><span class="muted">Líneas analizadas</span><strong id="k-lines">0</strong></div>
+        <div class="kpi"><span class="muted">IPs únicas</span><strong id="k-ips">0</strong></div>
+        <div class="kpi"><span class="muted">Alertas HIGH</span><strong id="k-high" style="color:var(--high);">0</strong></div>
+        <div class="kpi"><span class="muted">Alertas MEDIUM</span><strong id="k-med" style="color:var(--med);">0</strong></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin:0;">Alertas detectadas</h2>
+        <table>
+          <thead><tr><th>Severidad</th><th>Regla</th><th>Título</th><th>IP / Subred</th><th>Detalle y muestra</th></tr></thead>
+          <tbody id="alerts-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const esc = (v) => String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+    const $ = (s) => document.querySelector(s);
+
+    async function loadSample(name) {
+      const res = await fetch(`/api/v1/samples/${name}`);
+      if (res.ok) {
+        const data = await res.json();
+        $("#log-input").value = data.log_text;
+        await runAnalysis();
+      }
+    }
+
+    async function runAnalysis() {
+      const log_text = $("#log-input").value.trim();
+      if (!log_text) return;
+      const res = await fetch("/api/v1/analyze", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ log_text }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      $("#results").style.display = "block";
+      $("#k-lines").textContent = data.total_lines;
+      $("#k-ips").textContent = data.unique_ips;
+      $("#k-high").textContent = data.high_count;
+      $("#k-med").textContent = data.medium_count;
+
+      const tbody = $("#alerts-tbody");
+      tbody.innerHTML = data.alerts.length
+        ? data.alerts.map(a => `<tr>
+            <td><span class="badge ${esc(a.severity)}">${esc(a.severity)}</span></td>
+            <td><strong>${esc(a.rule_id)}</strong></td>
+            <td>${esc(a.title)}</td>
+            <td>${esc(a.source_ip)}<br/><span class="muted">${esc(a.subnet_24)}</span></td>
+            <td>${esc(a.detail)}${a.sample_line ? `<br/><code>${esc(a.sample_line)}</code>` : ""}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="5" style="color:var(--ok);">✔ Sin alertas detectadas.</td></tr>`;
+    }
+
+    $("#load-nginx").addEventListener("click", () => loadSample("nginx"));
+    $("#load-ssh").addEventListener("click", () => loadSample("ssh"));
+    $("#btn-analyze").addEventListener("click", runAnalysis);
+    $("#btn-csv").addEventListener("click", async () => {
+      const log_text = $("#log-input").value.trim();
+      if (!log_text) return;
+      const res = await fetch("/api/v1/analyze/csv", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ log_text }),
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "alertas_soc.csv"; a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>

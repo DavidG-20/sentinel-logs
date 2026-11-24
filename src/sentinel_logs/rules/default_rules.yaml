@@ -1,0 +1,30 @@
+# Reglas de detección por defecto para sentinel-logs (formato YAML seguro)
+thresholds:
+  ssh_bruteforce_attempts: 5
+  subnet_coordinated_ips: 2
+  spike_min_requests: 12
+
+signature_rules:
+  - id: WEB-SQLI-001
+    name: Intento de SQL Injection
+    severity: HIGH
+    category: web_attack
+    pattern: "(?i)(union(?:\\s|%20|\\+)+select|'%20or%201=1|'\\s+or\\s+'?1'?='?1|sleep\\(|benchmark\\(|information_schema)"
+
+  - id: WEB-XSS-002
+    name: Intento de Cross-Site Scripting (XSS)
+    severity: HIGH
+    category: web_attack
+    pattern: "(?i)(<script|%3cscript|onerror=|onload=|javascript:)"
+
+  - id: WEB-TRAVERSAL-003
+    name: Intento de Path Traversal
+    severity: HIGH
+    category: web_attack
+    pattern: "(?i)(\\.\\./|%2e%2e/|/etc/passwd|/etc/shadow)"
+
+  - id: WEB-SCAN-004
+    name: Escaneo de rutas sensibles o paneles
+    severity: MEDIUM
+    category: recon
+    pattern: "(?i)(/\\.env|/\\.git/|/wp-admin|/wp-login\\.php|/phpmyadmin|/actuator)"
