@@ -36,25 +36,37 @@ def _to_subnet_24(ip_str: str) -> str:
         return "unknown"
 
 
+class RuleLoadError(ValueError):
+    """Raised when a YAML rules file cannot be parsed or contains invalid regex."""
+
+
 def load_rules(rules_path: Path | None = None) -> tuple[list[SignatureRule], dict[str, int]]:
     """Safely load signature rules and thresholds from a YAML file."""
     path = rules_path or DEFAULT_RULES_PATH
-    data: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    thresholds = {
-        "ssh_bruteforce_attempts": int(data.get("thresholds", {}).get("ssh_bruteforce_attempts", 5)),
-        "subnet_coordinated_ips": int(data.get("thresholds", {}).get("subnet_coordinated_ips", 2)),
-        "spike_min_requests": int(data.get("thresholds", {}).get("spike_min_requests", 12)),
-    }
-    rules = [
-        SignatureRule(
-            rule_id=str(item["id"]),
-            name=str(item["name"]),
-            severity=str(item["severity"]).upper(),
-            category=str(item["category"]),
-            pattern=str(item["pattern"]),
-        )
-        for item in data.get("signature_rules", [])
-    ]
+    try:
+        data: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            raise RuleLoadError("El archivo YAML debe contener un diccionario raíz.")
+        thresholds = {
+            "ssh_bruteforce_attempts": int(data.get("thresholds", {}).get("ssh_bruteforce_attempts", 5)),
+            "subnet_coordinated_ips": int(data.get("thresholds", {}).get("subnet_coordinated_ips", 2)),
+            "spike_min_requests": int(data.get("thresholds", {}).get("spike_min_requests", 12)),
+        }
+        rules = []
+        for item in data.get("signature_rules", []):
+            pattern_str = str(item["pattern"])
+            re.compile(pattern_str)
+            rules.append(
+                SignatureRule(
+                    rule_id=str(item["id"]),
+                    name=str(item["name"]),
+                    severity=str(item["severity"]).upper(),
+                    category=str(item["category"]),
+                    pattern=pattern_str,
+                )
+            )
+    except (OSError, yaml.YAMLError, KeyError, TypeError, ValueError, re.error) as exc:
+        raise RuleLoadError(f"Archivo de reglas YAML inválido ({path}): {exc}") from exc
     return rules, thresholds
 
 
@@ -78,15 +90,14 @@ def analyze_log_text(
     for line in lines:
         ssh_match = SSH_FAIL_RE.search(line)
         if ssh_match:
-            ip = _valid_ipv4(ssh_match.group(1))
-            if ip:
-                ip_activity[ip] += 1
-                ssh_failures[ip] += 1
-                ssh_samples.setdefault(ip, line[:220])
-                continue
+            source_ip = _valid_ipv4(ssh_match.group(1))
+            if source_ip:
+                ssh_failures[source_ip] += 1
+                ssh_samples.setdefault(source_ip, line[:220])
+        else:
+            ip_match = IPV4_RE.search(line)
+            source_ip = _valid_ipv4(ip_match.group(1)) if ip_match else None
 
-        ip_match = IPV4_RE.search(line)
-        source_ip = _valid_ipv4(ip_match.group(1)) if ip_match else None
         if source_ip:
             ip_activity[source_ip] += 1
 

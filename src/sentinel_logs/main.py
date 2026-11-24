@@ -9,7 +9,7 @@ from rich.table import Table
 import typer
 import uvicorn
 
-from sentinel_logs.engine import analyze_log_text, export_alerts_csv
+from sentinel_logs.engine import RuleLoadError, analyze_log_text, export_alerts_csv
 from sentinel_logs.models import AnalysisReport
 
 app = typer.Typer(
@@ -70,7 +70,11 @@ def analyze_file(
 ) -> None:
     """Analiza un archivo de log y genera alertas correlacionadas."""
     log_text = logfile.read_text(encoding="utf-8", errors="replace")
-    report = analyze_log_text(log_text, rules_path=rules)
+    try:
+        report = analyze_log_text(log_text, rules_path=rules)
+    except RuleLoadError as exc:
+        console.print(f"[red]Error en reglas YAML:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
     _render_report(report)
 
     if json_out:
